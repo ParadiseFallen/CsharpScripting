@@ -5,6 +5,9 @@ using System.Text;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
+
+using Scripting.Analyzers;
 
 var dependenciesLoadContext = new AssemblyLoadContext("ScriptDependencies", false);
 var assemblyLoadContext = new AssemblyLoadContext("Scripts", true);
@@ -33,9 +36,21 @@ var compilationOptions = new CSharpCompilationOptions(OutputKind.ConsoleApplicat
        .WithAllowUnsafe(false)
        .WithPlatform(Platform.AnyCpu);
 
+var analyzer = new RestrictionAnalyzer();
+
 
 
 var builder = new StringBuilder();
+
+await CompileAndRun(@"
+
+Console.WriteLine(123);
+System.Environment.Exit(-5);
+System.Console.WriteLine(321);
+
+");
+return;
+
 
 while (true)
 {
@@ -49,28 +64,44 @@ while (true)
 
 
 
-    Console.WriteLine();
-    Console.WriteLine("Compiling and running...");
-    CompileAndRun(builder.ToString());
+    await CompileAndRun(builder.ToString());
     builder.Clear();
     Console.ReadKey();
 }
 
-void CompileAndRun(string code)
+async Task CompileAndRun(string code)
 {
     var scriptSyntaxTree = CSharpSyntaxTree.ParseText(code, parseOptions);
-    using var memoryStream = new MemoryStream();
+    Console.WriteLine("\n\n\t\t<====[Compile candidate]====>");
+    Console.WriteLine(code);
+    Console.WriteLine("\n\n\t\t<====[Compiling]====>");
 
     // compile code
     var compilation = CSharpCompilation
         .Create(Guid.NewGuid().ToString(), options: compilationOptions, references: References)
-        .AddSyntaxTrees(scriptSyntaxTree);
+        .AddSyntaxTrees(scriptSyntaxTree)
+        .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
 
-    var emitResult = compilation.Emit(memoryStream);
+    var diagnostics = await compilation.GetAllDiagnosticsAsync();
+    if (diagnostics.Any())
+    {
+        Console.WriteLine("\n\n\t\t<====[Errors]====>");
+
+        foreach (var item in diagnostics)
+        {
+            Console.WriteLine(item);
+        }
+        return;
+    }
+
+
+
+    using var memoryStream = new MemoryStream();
+    var emitResult = compilation.Compilation.Emit(memoryStream);
 
     if (!emitResult.Success)
     {
-        Console.WriteLine("Error while compiling");
+        Console.WriteLine("\n\n\t\t<====[Emit errors]====>");
         foreach (var item in emitResult.Diagnostics)
         {
             Console.WriteLine(item);
@@ -79,12 +110,13 @@ void CompileAndRun(string code)
     }
 
     memoryStream.Seek(0, SeekOrigin.Begin);
+    Console.WriteLine("\n\n\t\t<====[Executing code]====>");
 
     var assembly = assemblyLoadContext.LoadFromStream(memoryStream);
 
     var type = assembly.GetType("Script");
     var main = type.GetMethod("<Main>", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
     var result = main.Invoke(null, null);
-    Console.WriteLine(result);
+    Console.WriteLine("\n\n\t\t<====[Script done]====>");
 }
 
