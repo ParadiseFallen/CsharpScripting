@@ -44,9 +44,13 @@ var builder = new StringBuilder();
 
 await CompileAndRun(@"
 
-Console.WriteLine(123);
-System.Environment.Exit(-5);
+
+Environment.Exit(0);
+var x = Environment.Exit;
+x(0);
+System.Console.WriteLine(123);
 System.Console.WriteLine(321);
+System.Console.WriteLine(""hello world"");
 
 ");
 return;
@@ -76,11 +80,15 @@ async Task CompileAndRun(string code)
     Console.WriteLine(code);
     Console.WriteLine("\n\n\t\t<====[Compiling]====>");
 
+    var rewriter = new ScriptRewriter();
+    var rewritedTree = rewriter.Visit(scriptSyntaxTree.GetRoot());
+    Console.WriteLine(rewritedTree.GetText());
     // compile code
     var compilation = CSharpCompilation
         .Create(Guid.NewGuid().ToString(), options: compilationOptions, references: References)
         .AddSyntaxTrees(scriptSyntaxTree)
         .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+
 
     var diagnostics = await compilation.GetAllDiagnosticsAsync();
     if (diagnostics.Any())
@@ -114,8 +122,7 @@ async Task CompileAndRun(string code)
 
     var assembly = assemblyLoadContext.LoadFromStream(memoryStream);
 
-    var type = assembly.GetType("Script");
-    var main = type.GetMethod("<Main>", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+    var main = assembly.EntryPoint;
     var result = main.Invoke(null, null);
     Console.WriteLine("\n\n\t\t<====[Script done]====>");
 }
